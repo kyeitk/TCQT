@@ -1,24 +1,24 @@
 package com.owo233.tcqt.loader.modern
 
 import android.content.pm.ApplicationInfo
-import android.util.Log as AndroidLog
-import com.owo233.tcqt.HookEnv
-import com.owo233.tcqt.ext.ModuleScope
-import com.owo233.tcqt.hooks.base.ProcUtil
-import com.owo233.tcqt.hooks.enums.HostTypeEnum
+import com.owo233.tcqt.core.env.HookEnv
+import com.owo233.tcqt.core.env.HostTypeEnum
+import com.owo233.tcqt.core.env.ProcUtil
+import com.owo233.tcqt.core.hook.HookEngineManager
+import com.owo233.tcqt.core.log.Log
+import com.owo233.tcqt.core.reflect.callMethod
+import com.owo233.tcqt.core.reflect.getObject
+import com.owo233.tcqt.core.reflect.setObject
+import com.owo233.tcqt.core.sync.ModuleScope
+import com.owo233.tcqt.core.sync.ReceiverRegistry
 import com.owo233.tcqt.loader.InjectionGuard
 import com.owo233.tcqt.loader.ModuleLoader
-import com.owo233.tcqt.loader.ReceiverRegistry
-import com.owo233.tcqt.loader.api.HookEngineManager
 import com.owo233.tcqt.loader.legacy.LegacyHookEngine
-import com.owo233.tcqt.utils.log.Log
-import com.owo233.tcqt.utils.reflect.callMethod
-import com.owo233.tcqt.utils.reflect.getObject
-import com.owo233.tcqt.utils.reflect.setObject
 import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedInterfaceWrapper
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface
+import android.util.Log as AndroidLog
 
 class ModernHookEntry : XposedModule {
 

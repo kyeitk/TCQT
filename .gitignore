@@ -17,6 +17,7 @@ build/
 bin/
 gen/
 out/
+docs/
 
 # --- Android / App Specific ---
 app/build/
@@ -41,3 +42,4 @@ local.properties
 *.log
 .temp/
 .tmp/
+.dsh/

@@ -2,11 +2,11 @@ package com.owo233.tcqt.loader.legacy
 
 import android.util.Log
 import androidx.annotation.Keep
-import com.owo233.tcqt.HookSteps
-import com.owo233.tcqt.hooks.enums.HostTypeEnum
+import com.owo233.tcqt.core.action.HookSteps
+import com.owo233.tcqt.core.env.HostTypeEnum
+import com.owo233.tcqt.core.hook.HookEngineManager
 import com.owo233.tcqt.loader.InjectionGuard
 import com.owo233.tcqt.loader.ModuleLoader
-import com.owo233.tcqt.loader.api.HookEngineManager
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.IXposedHookZygoteInit
 import de.robv.android.xposed.callbacks.XC_LoadPackage

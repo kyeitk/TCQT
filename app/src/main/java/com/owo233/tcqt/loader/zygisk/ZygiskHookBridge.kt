@@ -6,10 +6,10 @@ import com.android.dx.DexMaker
 import com.android.dx.FieldId
 import com.android.dx.MethodId
 import com.android.dx.TypeId
-import com.owo233.tcqt.loader.api.Chain
-import com.owo233.tcqt.loader.api.HookParam
-import com.owo233.tcqt.loader.api.Invoker
-import com.owo233.tcqt.loader.api.Unhook
+import com.owo233.tcqt.core.hook.Chain
+import com.owo233.tcqt.core.hook.HookParam
+import com.owo233.tcqt.core.hook.Invoker
+import com.owo233.tcqt.core.hook.Unhook
 import dalvik.system.DexFile
 import dalvik.system.InMemoryDexClassLoader
 import java.lang.reflect.Constructor
@@ -158,9 +158,8 @@ internal object ZygiskHookBridge {
     fun dispatch(hookId: Long, thisObject: Any?, args: Array<Any?>): Any? {
         val entry = hooks[hookId]
             ?: run {
-                // Unhook 与进行中调用的窗口：entry 已被移除但 trampoline 入口
-                // 仍可能被正在执行的调用命中。此时不能把异常抛进宿主——异常
-                // 会穿越 trampoline 的裸跳帧,静默返回 null 即可。
+                // Unhook 与进行中调用的窗口：entry 已移除但 trampoline 入口仍可能被命中。
+                // 异常会穿过 trampoline 的裸跳帧，因此静默返回 null 而不是抛出。
                 Log.w(TAG, "dispatch: no entry for hookId=$hookId (unhooked?)")
                 return null
             }
@@ -182,7 +181,7 @@ internal object ZygiskHookBridge {
                     Mode.AFTER -> Unit
                 }
             } catch (t: Throwable) {
-                // 与 Xposed 一致：before 回调抛异常视为回调失败，不中断原方法。
+                // 与 Xposed 一致：before 回调抛异常不中断原方法。
                 Log.e(TAG, "before callback failed for ${entry.member}", t)
                 param.resetAfterBeforeFailure()
             }

@@ -48,11 +48,11 @@ class ActionRegistrarProcessor(
                 """
             package com.owo233.tcqt.generated
 
-            import com.owo233.tcqt.ext.IAction
+            import com.owo233.tcqt.core.action.ActionSpec
 
             internal object GeneratedActionList {
 
-                val ACTIONS: Array<Class<out IAction>> = arrayOf(
+                val ACTIONS: Array<Class<out ActionSpec>> = arrayOf(
             """.trimIndent()
             )
             writer.write("\n")

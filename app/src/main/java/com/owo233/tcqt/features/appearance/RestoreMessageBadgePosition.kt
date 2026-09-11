@@ -1,0 +1,132 @@
+package com.owo233.tcqt.features.appearance
+
+import android.view.View
+import android.view.ViewGroup
+import android.widget.ImageView
+import android.widget.RelativeLayout
+import com.owo233.tcqt.annotations.RegisterAction
+import com.owo233.tcqt.api.Feature
+import com.owo233.tcqt.api.Requires
+import com.owo233.tcqt.core.action.ActionPriority
+import com.owo233.tcqt.core.dexkit.DexKitTask
+import com.owo233.tcqt.core.env.toClass
+import com.owo233.tcqt.core.hook.hookAfter
+import com.owo233.tcqt.core.reflect.findMethod
+import com.owo233.tcqt.core.sync.SyncUtils
+import org.luckypray.dexkit.query.FindMethod
+import org.luckypray.dexkit.query.base.BaseMatcher
+
+@RegisterAction
+object RestoreMessageBadgePosition : Feature(
+    key = "restore_message_badge_position",
+    name = "还原消息红点气泡位置",
+    desc = "将会话列表的未读消息红点气泡移动到消息区域右下角，并隐藏多余的免打扰图标。",
+    priority = ActionPriority.EARLY,
+    requires = Requires(host = Requires.Host.QQOnly),
+), DexKitTask {
+
+    override fun getQueryMap(): Map<String, BaseMatcher> = mapOf(
+        "getSummary" to FindMethod().apply {
+            matcher {
+                declaredClass = RECENT_ITEM_LAYOUT
+                returnType = "android.view.View"
+                usingEqStrings("summary")
+            }
+        },
+        "getSummaryRightView" to FindMethod().apply {
+            matcher {
+                declaredClass = RECENT_ITEM_LAYOUT
+                returnType = "android.widget.ImageView"
+                usingEqStrings("summaryRightView")
+            }
+        },
+        "getRightLayout" to FindMethod().apply {
+            matcher {
+                declaredClass = RECENT_ITEM_LAYOUT
+                returnType = "android.widget.RelativeLayout"
+                usingEqStrings("rightLayout")
+            }
+        },
+        "updateDisturbIcon" to FindMethod().apply {
+            searchPackages("com.tencent.qqnt.chats.main.ui.processor")
+            matcher {
+                paramCount = 3
+                paramTypes(null, ROLLING_TEXT_VIEW, "android.widget.ImageView")
+                usingEqStrings("item", "view", "summaryRightView")
+            }
+        }
+    )
+
+    override fun install() {
+        val itemLayoutClass = RECENT_ITEM_LAYOUT.toClass
+        val rootLayoutClass = SWIPE_MENU_LAYOUT.toClass
+        val rollingTextViewClass = ROLLING_TEXT_VIEW.toClass
+
+        val createLayout = itemLayoutClass.findMethod {
+            paramTypes = arrayOf(context)
+            returnType = rootLayoutClass
+        }
+        val getBadge = itemLayoutClass.findMethod {
+            paramCount = 0
+            returnType = rollingTextViewClass
+        }
+        val getSummary = requireMethod("getSummary")
+        val getSummaryRightView = requireMethod("getSummaryRightView")
+        val getRightLayout = requireMethod("getRightLayout")
+
+        createLayout.hookAfter { param ->
+            val itemLayout = param.thisObject
+            val badge = getBadge.invoke(itemLayout) as? View ?: return@hookAfter
+            val messageArea = getRightLayout.invoke(itemLayout) as? RelativeLayout ?: return@hookAfter
+            val summaryRightView = getSummaryRightView.invoke(itemLayout) as? ImageView ?: return@hookAfter
+            val summary = getSummary.invoke(itemLayout) as? View ?: return@hookAfter
+            val summaryRightLayoutParams = summaryRightView.layoutParams as RelativeLayout.LayoutParams
+
+            SyncUtils.runOnUiThread {
+                if (badge.parent !== messageArea) {
+                    (badge.parent as? ViewGroup)?.removeView(badge)
+                    messageArea.addView(
+                        badge,
+                        createMessageAreaLayoutParams(summaryRightLayoutParams)
+                    )
+                } else {
+                    badge.layoutParams = createMessageAreaLayoutParams(summaryRightLayoutParams)
+                }
+
+                (summary.layoutParams as? RelativeLayout.LayoutParams)?.apply {
+                    removeRule(RelativeLayout.START_OF)
+                    addRule(RelativeLayout.START_OF, badge.id)
+                    summary.layoutParams = this
+                }
+
+                messageArea.clipChildren = false
+                messageArea.clipToPadding = false
+            }
+        }
+
+        // 隐藏免打扰图标
+        requireMethod("updateDisturbIcon").hookAfter { param ->
+            (param.args[2] as ImageView).visibility = View.GONE
+        }
+    }
+
+    private fun createMessageAreaLayoutParams(
+        summaryRightLayoutParams: RelativeLayout.LayoutParams
+    ) =
+        RelativeLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            addRule(
+                RelativeLayout.BELOW,
+                summaryRightLayoutParams.getRule(RelativeLayout.BELOW)
+            )
+            addRule(RelativeLayout.ALIGN_PARENT_END)
+            marginEnd = summaryRightLayoutParams.marginEnd
+        }
+
+    private const val RECENT_ITEM_LAYOUT =
+        "com.tencent.qqnt.chats.kit.x2k.ChatRecentContactItemLayout"
+    private const val SWIPE_MENU_LAYOUT = "com.tencent.qqnt.widget.SwipeMenuLayout"
+    private const val ROLLING_TEXT_VIEW = "com.tencent.qqnt.chats.view.RollingTextView"
+}

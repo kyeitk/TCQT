@@ -6,25 +6,29 @@ import android.content.Context
 import android.content.Intent
 import android.os.Environment
 import android.os.Process
-import com.owo233.tcqt.ext.ModuleScope
-import com.owo233.tcqt.HookEnv
-import com.owo233.tcqt.HookSteps
-import com.owo233.tcqt.StartupScheduler
-import com.owo233.tcqt.data.TCQTBuild
-import com.owo233.tcqt.hooks.base.ProcUtil
-import com.owo233.tcqt.internals.QQInterfaces
-import com.owo233.tcqt.loader.api.HookEngineManager
-import com.owo233.tcqt.loader.api.Unhook
+import com.owo233.tcqt.core.action.HookSteps
+import com.owo233.tcqt.core.action.StartupScheduler
+import com.owo233.tcqt.core.dexkit.DexKitCache
+import com.owo233.tcqt.core.dexkit.DexKitFinder
+import com.owo233.tcqt.core.env.HookEnv
+import com.owo233.tcqt.core.env.HostBridge
+import com.owo233.tcqt.core.env.ProcUtil
+import com.owo233.tcqt.core.env.TCQTBuild
+import com.owo233.tcqt.core.hook.HookEngineManager
+import com.owo233.tcqt.core.hook.MethodHookParam
+import com.owo233.tcqt.core.hook.Unhook
+import com.owo233.tcqt.core.hook.hookAfter
+import com.owo233.tcqt.core.hook.hookBefore
+import com.owo233.tcqt.core.log.Log
+import com.owo233.tcqt.core.reflect.allConstructors
+import com.owo233.tcqt.core.sync.ModuleScope
+import com.owo233.tcqt.core.sync.SyncUtils
+import com.owo233.tcqt.features.internal.pipeline.PipelineDecorators
+import com.owo233.tcqt.features.message.RecallHeaderTip
+import com.owo233.tcqt.host.QQInterfaces
 import com.owo233.tcqt.loader.modern.ModernHookEngine
 import com.owo233.tcqt.loader.zygisk.ZygiskHookEngine
-import com.owo233.tcqt.utils.SyncUtils
-import com.owo233.tcqt.utils.dexkit.DexKitCache
-import com.owo233.tcqt.utils.dexkit.DexKitFinder
-import com.owo233.tcqt.utils.hook.MethodHookParam
-import com.owo233.tcqt.utils.hook.hookAfter
-import com.owo233.tcqt.utils.hook.hookBefore
-import com.owo233.tcqt.utils.log.Log
-import com.owo233.tcqt.utils.reflect.allConstructors
+import com.owo233.tcqt.ui.parasitic.ParasiticActivity
 import com.tencent.common.app.BaseApplicationImpl
 import dalvik.system.BaseDexClassLoader
 import io.fastkv.FastKV
@@ -108,7 +112,6 @@ internal object ModuleLoader {
                 hookQFixAttach(method)
                 return true
             } catch (_: ClassNotFoundException) {
-                // ?
             } catch (th: Throwable) {
                 Log.e("nextInit Failure: $className", th)
             }
@@ -217,6 +220,7 @@ internal object ModuleLoader {
                 if (isInit.compareAndSet(false, true)) {
                     installMainDispatcher()
                     val app = param.thisObject as Application
+                    installHostBridge()
                     HookSteps.initContext(app)
                     System.getProperties()["tcqt.module_class_loader"] = this.javaClass.classLoader
 
@@ -224,8 +228,9 @@ internal object ModuleLoader {
                     val missingKeys = DexKitFinder.getMissingKeys()
                     val needDexKitFind = !cacheValid || missingKeys.isNotEmpty()
 
-                    // 只同步安装 CRITICAL，其余全部交给 StartupScheduler 在
-                    // onCreate 返回后分批后台安装，避免宿主白屏时间随功能数量线性增长
+                    installPipelineDecorators()
+
+                    // 只同步安装 CRITICAL，其余由 StartupScheduler 在 onCreate 返回后分批后台安装
                     val proc = HookSteps.resolveActionProcess()
                     val plan = HookSteps.initStartup(app, proc, missingKeys)
                     StartupScheduler.schedule(app, proc, plan, needDexKitFind)
@@ -250,6 +255,20 @@ internal object ModuleLoader {
         }
     }
 
+    /**
+     * 把上层能力注入 `core`。
+     *
+     * 必须在 [HookSteps.initContext] 之前调用：`initContext` 会触发
+     * `HostBridge.notifyHostApplicationReady`，若此时还没有订阅者，
+     * `ParasiticActivity` 就不会被初始化，寄生 Activity 直接失效。
+     */
+    private fun installHostBridge() {
+        HostBridge.topActivityProvider = { QQInterfaces.topActivity }
+        HostBridge.onHostApplicationReady { app ->
+            ParasiticActivity.initForStubActivity(app)
+        }
+    }
+
     fun reload(state: Map<*, *>) {
         installMainDispatcher()
         HookSteps.initModulePath(state["moduleApkPath"] as String)
@@ -259,6 +278,7 @@ internal object ModuleLoader {
         )
         HookEnv.setHostClassLoader(state["hostClassLoader"] as ClassLoader)
         HookSteps.injectClassLoader(state["hostClassLoader"] as ClassLoader)
+        installHostBridge()
         HookSteps.initContext(state["hostApplication"] as Application)
 
         System.getProperties()["tcqt.module_class_loader"] = this.javaClass.classLoader
@@ -278,8 +298,21 @@ internal object ModuleLoader {
         val needDexKitFind = !cacheValid || missingKeys.isNotEmpty()
 
         val app = state["hostApplication"] as Application
+        installPipelineDecorators()
         val proc = HookSteps.resolveActionProcess()
         val plan = HookSteps.initStartup(app, proc, missingKeys)
         StartupScheduler.schedule(app, proc, plan, needDexKitFind)
+    }
+
+    /**
+     * 登记非注册的管线装饰器。
+     *
+     * 注册 Action 的装饰器由 `PipelineDecorators` 从 `ActionRegistry` 自动发现；
+     * 但像 `RecallHeaderTip` 这种"某功能的渲染器、自己没有功能开关"的普通类没有
+     * 注册项，必须显式登记一次。两条启动路径都在 `HookSteps.initStartup` 之前
+     * 调用本方法，因此时机确定，早于任何管线的 `install()`。
+     */
+    private fun installPipelineDecorators() {
+        PipelineDecorators.register(RecallHeaderTip())
     }
 }

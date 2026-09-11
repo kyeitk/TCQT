@@ -9,16 +9,16 @@
  */
 package top.artmoe.inao.item
 
-import com.owo233.tcqt.ext.ifNullOrEmpty
-import com.owo233.tcqt.ext.launchWithCatch
-import com.owo233.tcqt.hooks.helper.ContactHelper
-import com.owo233.tcqt.hooks.helper.AntiRecallConfig
-import com.owo233.tcqt.hooks.helper.LocalGrayTips
-import com.owo233.tcqt.hooks.helper.MessageHandler
-import com.owo233.tcqt.hooks.helper.RecallManager
-import com.owo233.tcqt.internals.QQInterfaces
-import com.owo233.tcqt.internals.helper.GroupHelper
-import com.owo233.tcqt.utils.hook.MethodHookParam
+import com.owo233.tcqt.core.env.ifNullOrEmpty
+import com.owo233.tcqt.core.env.launchWithCatch
+import com.owo233.tcqt.core.hook.MethodHookParam
+import com.owo233.tcqt.host.QQInterfaces
+import com.owo233.tcqt.host.service.AntiRecallConfig
+import com.owo233.tcqt.host.service.ContactHelper
+import com.owo233.tcqt.host.service.GroupHelper
+import com.owo233.tcqt.host.service.LocalGrayTips
+import com.owo233.tcqt.host.service.MessageHandler
+import com.owo233.tcqt.host.service.RecallManager
 import com.tencent.qqnt.kernel.nativeinterface.JsonGrayBusiId
 import com.tencent.qqnt.kernel.nativeinterface.MsgConstant
 import kotlinx.coroutines.DelicateCoroutinesApi

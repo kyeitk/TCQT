@@ -1,0 +1,89 @@
+package com.owo233.tcqt.features.advanced
+
+import android.app.Activity
+import android.app.Instrumentation
+import android.content.Intent
+import android.net.Uri
+import android.os.IBinder
+import androidx.browser.customtabs.CustomTabsIntent
+import androidx.core.net.toUri
+import com.owo233.tcqt.annotations.RegisterAction
+import com.owo233.tcqt.api.Feature
+import com.owo233.tcqt.core.action.ActionProcess
+import com.owo233.tcqt.core.env.HookEnv
+import com.owo233.tcqt.core.env.PlatformTools
+import com.owo233.tcqt.core.hook.hookBefore
+import com.owo233.tcqt.core.reflect.findMethod
+import java.util.regex.Pattern
+
+@RegisterAction
+object FxxkQQBrowser : Feature(
+    key = "fxxk_qq_browser",
+    name = "去你大爷的QQ浏览器",
+    desc = "在宿主内访问网页时，强制使用系统默认浏览器打开，而非使用内置浏览器。",
+    processes = setOf(ActionProcess.ALL),
+) {
+
+
+    override fun install() {
+        hookExecStartActivity()
+    }
+
+    private fun hookExecStartActivity() {
+        Instrumentation::class.java.findMethod {
+            name = "execStartActivity"
+            paramTypes(
+                context, IBinder::class.java, IBinder::class.java,
+                Activity::class.java, Intent::class.java, int, bundle
+            )
+        }.hookBefore { param ->
+            val intent = param.args.getOrNull(4) as? Intent ?: return@hookBefore
+            val url = intent.getStringExtra("url") ?: return@hookBefore
+
+            if (!shouldHijack(intent, url)) {
+                return@hookBefore
+            }
+
+            openWithCustomTabs(url)
+            param.result = null
+        }
+    }
+
+    private fun shouldHijack(intent: Intent, url: String): Boolean {
+        if (!URL_PATTERN.matcher(url.lowercase()).matches()) return false
+        if (PlatformTools.isHostWhitelisted(url)) return false
+
+        val shortName = intent.component?.shortClassName ?: return false
+        return shortName.contains("QQBrowserActivity")
+    }
+
+    private fun openWithCustomTabs(rawUrl: String) {
+        val uri = rawUrl.toWebUri()
+
+        val customTabsIntent = CustomTabsIntent.Builder()
+            .setColorScheme(
+                if (HookEnv.isNightMode())
+                    CustomTabsIntent.COLOR_SCHEME_DARK
+                else
+                    CustomTabsIntent.COLOR_SCHEME_LIGHT
+            )
+            .setShowTitle(true)
+            .build()
+
+        customTabsIntent.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        customTabsIntent.launchUrl(HookEnv.application, uri)
+    }
+
+    private fun String.toWebUri(): Uri {
+        return if (startsWith("http://") || startsWith("https://")) {
+            toUri()
+        } else {
+            "http://$this".toUri()
+        }
+    }
+
+
+    private val URL_PATTERN = Pattern.compile(
+        "^(https?|ftp)://[^\\s/$.?#].[^\\s]*$|^www\\.[^.]+\\.[^.]+$|^[^.]+\\.[^.]+$"
+    )
+}

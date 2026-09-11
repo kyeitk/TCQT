@@ -245,10 +245,21 @@ protobuf {
 }
 
 dependencies {
+    val sharedDeps = listOf(
+        libs.androidx.constraintlayout,
+        projects.libs.qqinterface,
+    )
+
+    sharedDeps.forEach {
+        compileOnly(it)
+        testImplementation(it)
+    }
+
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlin.test.junit)
+
     compileOnly(libs.libxposed.api)
     compileOnly(libs.xposed.api)
-    compileOnly(libs.androidx.constraintlayout)
-    compileOnly(projects.libs.qqinterface)
 
     ksp(projects.libs.processor)
 

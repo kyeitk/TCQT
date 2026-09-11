@@ -8,12 +8,13 @@ import android.os.Build
 import android.os.Process
 import android.util.Log
 import androidx.annotation.Keep
-import com.owo233.tcqt.hooks.base.ProcUtil
+import com.owo233.tcqt.core.env.NativeLibs
+import com.owo233.tcqt.core.env.ProcUtil
+import com.owo233.tcqt.core.hook.HookEngineManager
+import com.owo233.tcqt.core.hook.hookAfter
+import com.owo233.tcqt.core.hook.hookBefore
 import com.owo233.tcqt.loader.InjectionGuard
 import com.owo233.tcqt.loader.ModuleLoader
-import com.owo233.tcqt.loader.api.HookEngineManager
-import com.owo233.tcqt.utils.hook.hookAfter
-import com.owo233.tcqt.utils.hook.hookBefore
 import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
@@ -53,7 +54,7 @@ object ZygiskEntry {
             nativeLog(TAG, "init: $processName (zygisk mode claimed, compat=${isCompatMode()})")
 
             val nativeDir = prepareNativeLibs(apkPath, dataDir)
-            ZygiskNativeLibs.register(nativeDir)
+            NativeLibs.register(nativeDir)
 
             maybePreloadGraphicsPath()
 
@@ -118,8 +119,7 @@ object ZygiskEntry {
                     if (!libsUpToDate || !outFile.isFile) {
                         extractNativeLibrary(zip, entry, outFile)
 
-                        // Android 17+:
-                        // native libraries loaded through System.load() must be read-only.
+                        // Android 17+: System.load() requires native libraries to be read-only.
                         ensureReadOnly(outFile)
                     }
                 } catch (t: Throwable) {
@@ -151,7 +151,7 @@ object ZygiskEntry {
 
     private fun maybePreloadGraphicsPath() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return
-        if (ProcUtil.isMain) ZygiskNativeLibs.load("androidx.graphics.path")
+        if (ProcUtil.isMain) NativeLibs.load("androidx.graphics.path")
     }
 
     private fun readTrimmed(file: File): String? =

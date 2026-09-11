@@ -8,9 +8,7 @@ internal object InjectionGuard {
     const val MODE_XPOSED = "xposed"
 
     /**
-     * 尝试成为本进程唯一注入方
-     *
-     * @return true 表示当前 mode 可以继续初始化；false 表示已有其他 mode 接管
+     * 尝试成为本进程唯一注入方；true = 当前 mode 可继续初始化，false = 已被其他 mode 接管。
      */
     fun tryAcquire(mode: String): Boolean {
         synchronized(KEY.intern()) {

@@ -1,11 +1,10 @@
 package com.owo233.tcqt.loader.zygisk;
 
 /**
- * Platform-type bridge: returns the receiver as-is. Kotlin sees the Java
- * return type {@code Object} as a flexible platform type, so the
- * {@code HookParam.thisObject} getter can yield {@code null} for static
- * methods without a Kotlin null-assertion (matching the Xposed semantics
- * where thisObject is {@code null} for static members).
+ * Platform-type bridge: returns the receiver as-is so Kotlin sees a flexible
+ * platform type instead of a Kotlin non-null value. That lets
+ * {@code HookParam.thisObject} be {@code null} for static methods without a
+ * Kotlin null-assertion, matching Xposed semantics.
  */
 final class ZygiskThisObject {
 

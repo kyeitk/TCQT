@@ -1,0 +1,238 @@
+package com.owo233.tcqt.core.config
+
+import android.content.Context
+import android.net.Uri
+import android.provider.DocumentsContract
+import androidx.core.net.toUri
+import androidx.documentfile.provider.DocumentFile
+import com.owo233.tcqt.core.env.TCQTBuild
+import com.owo233.tcqt.core.log.Log
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+object ConfigBackupManager {
+
+    private const val BACKUP_MARKER = "TCQT_CONFIG_BACKUP"
+    private const val BACKUP_VERSION = 1
+    private const val KEY_BACKUP_DIRECTORY_URI = "backup_directory_uri"
+
+    private val json = Json {
+        prettyPrint = false
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+        isLenient = false
+        allowStructuredMapKeys = false
+        coerceInputValues = false
+        useArrayPolymorphism = false
+    }
+
+    fun getBackupDirectoryUri(): Uri? {
+        val uriString = TCQTSetting.getRawString(KEY_BACKUP_DIRECTORY_URI)
+        return uriString.ifBlank { null }?.toUri()
+    }
+
+    fun saveBackupDirectoryUri(uri: Uri) {
+        TCQTSetting.putRawString(KEY_BACKUP_DIRECTORY_URI, uri.toString())
+    }
+
+    fun clearBackupDirectoryUri() {
+        TCQTSetting.remove(KEY_BACKUP_DIRECTORY_URI)
+    }
+
+    fun isBackupDirectoryUriValid(context: Context, uri: Uri): Boolean {
+        return try {
+            if (!DocumentsContract.isTreeUri(uri)) {
+                return false
+            }
+            val documentFile = DocumentFile.fromTreeUri(context, uri)
+            documentFile?.exists() == true && documentFile.canWrite()
+        } catch (e: Exception) {
+            Log.w("Backup directory URI invalid", e)
+            false
+        }
+    }
+
+    @Serializable
+    private data class BackupData(
+        val marker: String = BACKUP_MARKER,
+        val version: Int = BACKUP_VERSION,
+        val timestamp: Long = System.currentTimeMillis(),
+        val moduleName: String = TCQTBuild.APP_NAME,
+        val moduleVersion: String = TCQTBuild.VER_NAME,
+        val settings: List<SettingItem>
+    )
+
+    @Serializable
+    private data class SettingItem(
+        val key: String,
+        val type: String,
+        val value: String
+    )
+
+    sealed class RestoreResult {
+
+        data class Success(val count: Int) : RestoreResult()
+        object InvalidFile : RestoreResult()
+        object VersionMismatch : RestoreResult()
+        data class Error(val exception: Exception) : RestoreResult()
+    }
+
+    fun generateBackupFileName(): String {
+
+        val timestamp = SimpleDateFormat("yyyyMMddHHmmss", Locale.getDefault()).format(Date())
+        return "${TCQTBuild.APP_NAME}_Backup_$timestamp.json"
+    }
+
+    fun backupConfigToDirectory(context: Context, directoryUri: Uri): Boolean {
+        return try {
+            val tree = DocumentFile.fromTreeUri(context, directoryUri)
+            if (tree == null || !tree.exists() || !tree.canWrite() || !tree.isDirectory) {
+                Log.e("Backup failed: invalid directory uri = $directoryUri")
+                return false
+            }
+
+            val fileName = generateBackupFileName()
+
+            val settings = mutableListOf<SettingItem>()
+
+            val settingMap = TCQTSetting.settingMap
+            for ((key, setting) in settingMap) {
+                if (!isDefaultValue(setting)) {
+                    val typeStr = setting.type.name
+                    val valueStr = getValueAsString(setting)
+                    settings.add(SettingItem(key, typeStr, valueStr))
+                }
+            }
+
+            val backupData = BackupData(settings = settings)
+            val jsonStr = json.encodeToString(backupData)
+
+            val file = tree.createFile("application/json", fileName)
+                ?: run {
+                    Log.e("Backup failed: createFile returned null")
+                    return false
+                }
+
+            context.contentResolver.openOutputStream(file.uri, "wt")?.use { output ->
+                output.write(jsonStr.toByteArray(Charsets.UTF_8))
+                output.flush()
+            } ?: run {
+                Log.e("Backup failed: openOutputStream returned null")
+                return false
+            }
+
+            Log.d("Backup successful: ${settings.size} settings saved to $fileName")
+            true
+        } catch (e: Exception) {
+            Log.e("Backup to directory failed", e)
+            false
+        }
+    }
+
+    private fun isDefaultValue(setting: TCQTSetting.Setting<out Any>): Boolean {
+        return try {
+            val currentValue = setting.getValue()
+            val defaultValue = getDefaultValue(setting)
+            currentValue == defaultValue
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun getDefaultValue(setting: TCQTSetting.Setting<out Any>): Any? {
+        return setting.default
+    }
+
+    fun restoreConfig(context: Context, uri: Uri): RestoreResult {
+        return try {
+            val jsonStr = context.contentResolver.openInputStream(uri)?.use { input ->
+                input.readBytes().toString(Charsets.UTF_8)
+            } ?: return RestoreResult.InvalidFile
+
+            val backupData = json.decodeFromString<BackupData>(jsonStr)
+
+            if (backupData.marker != BACKUP_MARKER) {
+                return RestoreResult.InvalidFile
+            }
+
+            if (backupData.version > BACKUP_VERSION) {
+                return RestoreResult.VersionMismatch
+            }
+
+            val settingMap = TCQTSetting.settingMap
+
+            TCQTSetting.clearAll()
+
+            var restoredCount = 0
+
+            for (item in backupData.settings) {
+                val setting = settingMap[item.key] ?: continue
+                val type = try {
+                    TCQTSetting.SettingType.valueOf(item.type)
+                } catch (_: IllegalArgumentException) {
+                    continue
+                }
+
+                if (type != setting.type &&
+                    !(type == TCQTSetting.SettingType.INT && setting.type == TCQTSetting.SettingType.INT_MULTI) &&
+                    !(type == TCQTSetting.SettingType.INT_MULTI && setting.type == TCQTSetting.SettingType.INT)
+                ) {
+                    continue
+                }
+
+                if (setValueFromString(setting, item.value)) {
+                    restoredCount++
+                }
+            }
+
+            Log.d("Restore successful: $restoredCount settings restored")
+            RestoreResult.Success(restoredCount)
+        } catch (e: Exception) {
+            Log.e("Restore failed", e)
+            RestoreResult.Error(e)
+        }
+    }
+
+    private fun getValueAsString(setting: TCQTSetting.Setting<out Any>): String {
+        return when (setting.type) {
+            TCQTSetting.SettingType.BOOLEAN -> setting.getValue().toString()
+            TCQTSetting.SettingType.INT, TCQTSetting.SettingType.INT_MULTI -> setting.getValue()
+                .toString()
+
+            TCQTSetting.SettingType.STRING -> setting.getValue().toString()
+        }
+    }
+
+    private fun setValueFromString(
+        setting: TCQTSetting.Setting<out Any>,
+        value: String
+    ): Boolean {
+        return try {
+            when (setting.type) {
+                TCQTSetting.SettingType.BOOLEAN -> {
+                    val boolValue = value.toBooleanStrict()
+                    @Suppress("UNCHECKED_CAST")
+                    (setting as TCQTSetting.Setting<Boolean>).setValue(boolValue)
+                }
+
+                TCQTSetting.SettingType.INT, TCQTSetting.SettingType.INT_MULTI -> {
+                    val intValue = value.toInt()
+                    @Suppress("UNCHECKED_CAST")
+                    (setting as TCQTSetting.Setting<Int>).setValue(intValue)
+                }
+
+                TCQTSetting.SettingType.STRING -> {
+                    @Suppress("UNCHECKED_CAST")
+                    (setting as TCQTSetting.Setting<String>).setValue(value)
+                }
+            }
+            true
+        } catch (e: Exception) {
+            Log.e("Failed to set value for key: ${setting.key}", e)
+            false
+        }
+    }
+}
