@@ -12,16 +12,18 @@ import com.owo233.tcqt.core.env.HookEnv
 import com.owo233.tcqt.core.env.QQVersion
 import com.owo233.tcqt.core.env.TCQTBuild
 import com.owo233.tcqt.core.env.isFlagEnabled
-import com.owo233.tcqt.core.env.loadOrThrow
+import com.owo233.tcqt.core.env.toClass
 import com.owo233.tcqt.core.hook.MethodHookParam
 import com.owo233.tcqt.core.hook.hookAfter
 import com.owo233.tcqt.core.hook.hookBefore
 import com.owo233.tcqt.core.hook.hookMethodBefore
 import com.owo233.tcqt.core.hook.hookReplace
+import com.owo233.tcqt.core.hook.invokeOriginal
 import com.owo233.tcqt.core.hook.isPublic
 import com.owo233.tcqt.core.hook.paramCount
 import com.owo233.tcqt.core.log.Log
 import com.owo233.tcqt.core.proto.GlobalJson
+import com.owo233.tcqt.core.reflect.callMethod
 import com.owo233.tcqt.core.reflect.findMethod
 import com.owo233.tcqt.host.QQInterfaces
 import com.tencent.qphone.base.remote.FromServiceMsg
@@ -41,7 +43,7 @@ object DisableDialog : Feature(
         settingKey = "type",
         name = "可选项",
         defaultValue = 0,
-        options = listOf("屏蔽灰度版本体验", "屏蔽社交封禁提醒", "屏蔽版本升级弹窗"),
+        options = listOf("屏蔽灰度版本体验", "屏蔽社交封禁提醒", "屏蔽版本升级弹窗", "屏蔽三方跳转弹窗"),
     )
 
     private val isShowMap = ConcurrentHashMap<String, Boolean>()
@@ -50,7 +52,8 @@ object DisableDialog : Feature(
         val actionMap = mapOf(
             0 to ::disableGrayCheckDialog,
             1 to ::disableFekitDialog,
-            2 to ::disableNewVersionDialog
+            2 to ::disableNewVersionDialog,
+            3 to ::disableJumpDialog
         )
 
         actionMap.forEach { (flag, action) ->
@@ -58,14 +61,23 @@ object DisableDialog : Feature(
         }
     }
 
+    private fun disableJumpDialog() {
+        "com.tencent.mobileqq.haoliyou.JefsClass".toClass.findMethod {
+            name = "intercept"
+            paramCount = 4
+        }.hookReplace { param ->
+            val runnable = param.args.getOrNull(2) as? Runnable
+                ?: return@hookReplace param.invokeOriginal()
+            param.thisObject.callMethod("run", runnable)
+        }
+    }
+
     private fun disableNewVersionDialog() {
-        loadOrThrow(
-            if (HookEnv.requireMinQQVersion(QQVersion.QQ_9_2_20)) {
-                "com.tencent.mobileqq.upgrade.ui.dialog.UpgradeActivity"
-            } else {
-                "com.tencent.mobileqq.upgrade.activity.UpgradeActivity"
-            }
-        ).findMethod {
+        if (HookEnv.requireMinQQVersion(QQVersion.QQ_9_2_20)) {
+            "com.tencent.mobileqq.upgrade.ui.dialog.UpgradeActivity"
+        } else {
+            "com.tencent.mobileqq.upgrade.activity.UpgradeActivity"
+        }.toClass.findMethod {
             name = "doOnCreate"
             paramTypes = arrayOf(bundle)
         }.hookReplace { param ->
@@ -73,7 +85,7 @@ object DisableDialog : Feature(
             true
         }
 
-        loadOrThrow("com.tencent.biz.qui.noticebar.view.VQUINoticeBarLayout")
+        "com.tencent.biz.qui.noticebar.view.VQUINoticeBarLayout".toClass
             .getDeclaredConstructor(Context::class.java, AttributeSet::class.java)
             .hookAfter { param ->
                 val view = param.thisObject as FrameLayout
@@ -83,7 +95,7 @@ object DisableDialog : Feature(
     }
 
     private fun disableGrayCheckDialog() {
-        loadOrThrow("com.tencent.mobileqq.graycheck.business.GrayCheckHandler")
+        "com.tencent.mobileqq.graycheck.business.GrayCheckHandler".toClass
             .declaredMethods.firstOrNull {
                 it.isPublic && it.returnType == Void.TYPE &&
                         it.paramCount == 1 && it.parameterTypes[0] == FromServiceMsg::class.java
@@ -91,7 +103,7 @@ object DisableDialog : Feature(
     }
 
     private fun disableFekitDialog() {
-        loadOrThrow("com.tencent.mobileqq.dt.api.impl.DTAPIImpl")
+        "com.tencent.mobileqq.dt.api.impl.DTAPIImpl".toClass
             .hookMethodBefore(
                 "onSecDispatchToAppEvent",
                 String::class.java,
