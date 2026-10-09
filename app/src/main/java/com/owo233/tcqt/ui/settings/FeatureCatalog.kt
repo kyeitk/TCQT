@@ -3,6 +3,7 @@ package com.owo233.tcqt.ui.settings
 import com.owo233.tcqt.core.action.ActionRegistry
 import com.owo233.tcqt.core.config.IntSetting
 import com.owo233.tcqt.core.config.IntSliderSetting
+import com.owo233.tcqt.core.config.TCQTSetting
 import com.owo233.tcqt.core.config.MultiIntSetting
 import com.owo233.tcqt.core.config.StringSetting
 import com.owo233.tcqt.ui.settings.model.FeatureOptionGroup
@@ -55,8 +56,18 @@ internal object FeatureCatalog {
                     )
                 }
 
+            val isFull = action.key == "simplify_qq_setting_me" &&
+                TCQTSetting.getInt("simplify_qq_setting_me.mode") == 2
+            val hiddenFullKeys = setOf(
+                "simplify_qq_setting_me.panel_clip",
+                "simplify_qq_setting_me.top_shortcuts",
+                "simplify_qq_setting_me.menu_icon_style",
+                "simplify_qq_setting_me.bottom_bar_style",
+            )
+
             val optionGroups = action.settings
                 .filter { (it is IntSetting || it is MultiIntSetting) && !it.isHide }
+                .filterNot { action.key == "simplify_qq_setting_me" && !isFull && it.key in hiddenFullKeys }
                 .map { s ->
                     val options = when (s) {
                         is IntSetting -> s.options
@@ -75,9 +86,15 @@ internal object FeatureCatalog {
                     )
                 }
 
+            val panelClipEnabled = action.key == "simplify_qq_setting_me" && isFull &&
+                (TCQTSetting.getInt("simplify_qq_setting_me.panel_clip") and 1) != 0
             val sliders = action.settings
                 .filterIsInstance<IntSliderSetting>()
                 .filterNot { it.isHide }
+                .filterNot {
+                    action.key == "simplify_qq_setting_me" && (!isFull || !panelClipEnabled) &&
+                        (it.key.endsWith("panel_width") || it.key.endsWith("corner_radius"))
+                }
                 .map { s ->
                     FeatureSliderField(
                         key = s.key,

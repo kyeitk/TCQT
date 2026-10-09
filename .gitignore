@@ -43,3 +43,14 @@ local.properties
 .temp/
 .tmp/
 .dsh/
+
+# --- Local workspace data ---
+/.android-tmp/
+/.gradle-tmp/
+/KernelSU-clone/
+/TCQT-main/
+/TCQT-PR-smooth-tab-fix/
+/platform-tools/
+/wekit/
+/research/tcqt-settingme-research/evidence/
+/research/tcqt-settingme-research/deprecated/
