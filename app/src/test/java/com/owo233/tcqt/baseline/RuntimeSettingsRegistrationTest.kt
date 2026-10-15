@@ -61,8 +61,7 @@ class RuntimeSettingsRegistrationTest {
                 return@forEach
             }
 
-            val file =
-                SourceScanner.mainKotlinFiles().firstOrNull { it.name == "${cls.simpleName}.kt" }
+            val file = SourceScanner.declarationFile(cls.name)
             if (file == null) {
                 problems += "${cls.simpleName}: 找不到源文件"
                 return@forEach
@@ -108,10 +107,17 @@ class RuntimeSettingsRegistrationTest {
      */
     @Test
     fun `目录里带配置项的功能必须带出可渲染的选项`() {
-        val catalog = FeatureCatalog.getAllFeatures().associateBy { it.key }
+        // Exercise the fully expanded catalog without loading Android's native config store.
+        val features = FeatureCatalog.getAllFeatures { key ->
+            when (key) {
+                "simplify_qq_setting_me.mode" -> 2
+                "simplify_qq_setting_me.panel_clip" -> 1
+                else -> 0
+            }
+        }
+        val catalog = features.associateBy { it.key }
         assertTrue(catalog.isNotEmpty(), "功能目录为空")
 
-        val features = FeatureCatalog.getAllFeatures()
         val withControls = features.count {
             it.optionGroups.isNotEmpty() || it.textAreas.isNotEmpty() || it.sliders.isNotEmpty()
         }

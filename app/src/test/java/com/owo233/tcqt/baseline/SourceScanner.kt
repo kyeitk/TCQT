@@ -42,6 +42,18 @@ internal object SourceScanner {
 
     fun read(file: File): String = file.readText(Charsets.UTF_8)
 
+    /** A Kotlin declaration can live in a differently named file after a feature rename. */
+    fun declarationFile(fqn: String): File? {
+        val packageName = fqn.substringBeforeLast('.')
+        val simpleName = fqn.substringAfterLast('.')
+        val declaration = Regex("\\b(?:class|object)\\s+${Regex.escape(simpleName)}\\b")
+        return mainKotlinFiles().firstOrNull { file ->
+            val source = stripComments(read(file))
+            Regex("(?m)^\\s*package\\s+${Regex.escape(packageName)}\\s*$")
+                .containsMatchIn(source) && declaration.containsMatchIn(source)
+        }
+    }
+
     /** 去除块注释与行注释，避免把 KDoc 里的示例当成真实声明。 */
     fun stripComments(text: String): String {
         val noBlock = Regex("/\\*.*?\\*/", RegexOption.DOT_MATCHES_ALL).replace(text, "")

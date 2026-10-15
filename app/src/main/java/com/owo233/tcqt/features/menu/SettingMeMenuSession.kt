@@ -12,17 +12,21 @@ import android.widget.ImageView
 import android.graphics.drawable.Drawable
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.util.TypedValue
 import com.owo233.tcqt.core.env.HookEnv
 import com.owo233.tcqt.core.env.ModuleComponents
 import com.owo233.tcqt.core.hook.hookBefore
 import com.owo233.tcqt.core.log.Log
 import com.owo233.tcqt.host.QQInterfaces
+import com.owo233.tcqt.features.menu.settingmecards.NativePanelReflow
+import com.owo233.tcqt.features.menu.settingmecards.NativeCoverAdaptation
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Album
 import top.yukonga.miuix.kmp.icon.extended.BankCards
 import top.yukonga.miuix.kmp.icon.extended.CloudFill
 import top.yukonga.miuix.kmp.icon.extended.Favorites
 import top.yukonga.miuix.kmp.icon.extended.File
+import top.yukonga.miuix.kmp.icon.extended.GridView
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.icon.extended.Store
 import top.yukonga.miuix.kmp.icon.extended.Theme
@@ -39,6 +43,12 @@ data class SettingMeUiConfig(
     val showTopReturn: Boolean,
     val menuIconStyle: Int,
     val bottomBarStyle: Int,
+    val cardReflow: Boolean = false,
+    val showBackground: Boolean = true,
+    val cardLayout: String = "",
+    val weatherCity: String = "北京,39.9042,116.4074",
+    val saveCardLayout: (String) -> Unit = {},
+    val readCardLayout: () -> String = { cardLayout },
 ) {
     companion object {
         const val ICON_NATIVE = 1
@@ -79,6 +89,7 @@ object SettingMeMenuSession {
     fun configure(config: SettingMeUiConfig) {
         this.config = config
         installLayoutHook()
+        if (config.cardReflow) NativeCoverAdaptation.install()
     }
 
     fun ensureModuleSettingsEntry(part: Any) {
@@ -90,6 +101,10 @@ object SettingMeMenuSession {
         attachClipListener(root, session)
         applyTopShortcutVisibility(root, cfg)
         root.postDelayed({ applyMenuIcons(root, cfg) }, 200L)
+        if (cfg.cardReflow) root.postDelayed({
+            runCatching { NativePanelReflow.attach(part, cfg) }
+                .onFailure { Log.w("$TAG 原栏目适配失败，保留原页面: $it") }
+        }, 250L)
 
         val bar = session.bottomBar() ?: run {
             root.postDelayed({ retryEnsure(session, 0) }, 200L)
@@ -145,25 +160,35 @@ object SettingMeMenuSession {
             bar.findViewWithTag<View>(ENTRY_TAG)?.let { return it }
             val template = bar.getChildAt(0)
             val templateLp = template?.layoutParams as? LinearLayout.LayoutParams
+            val templateLabel = template?.let {
+                findView(it) { child -> child is TextView && child.text.toString().trim() == "设置" } as? TextView
+            }
+            val templateIcon = template?.let { findView(it) { child -> child is ImageView } as? ImageView }
             val density = bar.resources.displayMetrics.density
             val width = template?.width?.takeIf { it > 0 } ?: (58 * density).roundToInt()
             val height = template?.height?.takeIf { it > 0 } ?: (54 * density).roundToInt()
 
-            val button = TextView(bar.context).apply {
-                text = "模块设置"
-                contentDescription = "模块设置"
-                tag = ENTRY_TAG
+            val label = TextView(bar.context).apply {
+                text = "模块"
                 gravity = Gravity.CENTER
                 textSize = 14f
-                setTextColor(0xFF333333.toInt())
+                maxLines = 1
+                setTextColor(if (HookEnv.isNightMode()) 0xFFF1F1F1.toInt() else 0xFF333333.toInt())
+            }
+            val image = ImageView(bar.context).apply {
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }
+            val button = LinearLayout(bar.context).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                contentDescription = "模块设置"
+                tag = ENTRY_TAG
                 isClickable = true
                 isFocusable = true
-                setPadding(
-                    (12 * resources.displayMetrics.density).roundToInt(),
-                    0,
-                    (12 * resources.displayMetrics.density).roundToInt(),
-                    0,
-                )
+                val iconSize = (24 * density).roundToInt()
+                image.setImageDrawable(MiuixIconRenderer.toDrawable(context, MiuixIcons.GridView, iconSize))
+                addView(image, LinearLayout.LayoutParams(iconSize, iconSize))
+                addView(label, LinearLayout.LayoutParams(-2, -2))
                 setOnClickListener { openModuleSettings() }
             }
             button.layoutParams = LinearLayout.LayoutParams(width, height).apply {
@@ -171,6 +196,39 @@ object SettingMeMenuSession {
                 topMargin = templateLp?.topMargin ?: 0
             }
             bar.addView(button)
+            // Bind after native measurement: the first TextView may be an invisible red dot,
+            // and QQ may change resource density before its original slots are measured.
+            fun syncSlots() {
+                val group = template as? ViewGroup ?: return
+                val nativeIcon = templateIcon ?: return
+                val nativeLabel = templateLabel ?: return
+                if (group.width <= 0 || group.height <= 0 || nativeIcon.width <= 0 || nativeLabel.height <= 0) return
+                val iconRect = Rect(0, 0, nativeIcon.width, nativeIcon.height)
+                val labelRect = Rect(0, 0, nativeLabel.width, nativeLabel.height)
+                group.offsetDescendantRectToMyCoords(nativeIcon, iconRect)
+                group.offsetDescendantRectToMyCoords(nativeLabel, labelRect)
+                val rootLp = button.layoutParams as LinearLayout.LayoutParams
+                if (rootLp.width != group.width || rootLp.height != group.height) {
+                    rootLp.width = group.width; rootLp.height = group.height
+                    button.layoutParams = rootLp
+                }
+                val iconLp = image.layoutParams as LinearLayout.LayoutParams
+                if (iconLp.width != nativeIcon.width || iconLp.height != nativeIcon.height || iconLp.topMargin != iconRect.top) {
+                    iconLp.width = nativeIcon.width; iconLp.height = nativeIcon.height; iconLp.topMargin = iconRect.top
+                    image.layoutParams = iconLp
+                    image.setImageDrawable(MiuixIconRenderer.toDrawable(bar.context, MiuixIcons.GridView, nativeIcon.width))
+                }
+                label.setTextSize(TypedValue.COMPLEX_UNIT_PX, nativeLabel.textSize)
+                label.includeFontPadding = nativeLabel.includeFontPadding
+                val labelLp = label.layoutParams as LinearLayout.LayoutParams
+                val gap = (labelRect.top - iconRect.bottom).coerceAtLeast(0)
+                if (labelLp.height != nativeLabel.height || labelLp.topMargin != gap) {
+                    labelLp.height = nativeLabel.height; labelLp.topMargin = gap
+                    label.layoutParams = labelLp
+                }
+            }
+            template?.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> syncSlots() }
+            button.post { syncSlots() }
             Log.i("$TAG 模块设置入口已注入 bottomBar=${bar.javaClass.name} childCount=${bar.childCount}")
             return button
         }
@@ -198,6 +256,7 @@ object SettingMeMenuSession {
             config?.let { cfg ->
                 applyGeometry(root, cfg)
                 applyTopShortcutVisibility(root, cfg)
+                if (cfg.cardReflow) NativeCoverAdaptation.refreshTopForeground(root)
                 applyMenuIcons(root, cfg)
                 session.bottomBar()?.let { styleBottomBar(it, cfg) }
             }
@@ -257,28 +316,37 @@ object SettingMeMenuSession {
     }
 
 
-    private fun applyMenuIcons(root: View, cfg: SettingMeUiConfig) {
+    internal fun applyMenuIcons(root: View, cfg: SettingMeUiConfig) {
         if (cfg.menuIconStyle != SettingMeUiConfig.ICON_MIUIX) return
+        var replaced = false
         val iconImages = findViews(root) { view ->
             view is ImageView && resourceName(view) == MENU_ICON_IMAGE_RESOURCE
         }
         if (iconImages.isNotEmpty()) {
             iconImages.forEach { view ->
                 val image = view as? ImageView ?: return@forEach
-                val row = image.parent as? ViewGroup ?: return@forEach
+                val row = generateSequence(image.parent as? ViewGroup) { it.parent as? ViewGroup }
+                    .take(4).firstOrNull { parent ->
+                        findView(parent) { it is TextView && resourceName(it) == MENU_ICON_LABEL_RESOURCE } != null
+                    } ?: return@forEach
                 val label = findView(row) { child ->
                     child is TextView && resourceName(child) == MENU_ICON_LABEL_RESOURCE
                 }?.let { (it as? TextView)?.text?.toString()?.trim() } ?: return@forEach
                 val icon = MENU_ICON_MAP[label] ?: return@forEach
                 replaceIcon(image, icon)
+                replaced = true
             }
-            return
+            if (replaced) return
         }
         MENU_ICON_MAP.forEach { (label, icon) ->
             val labeled = findView(root) { view ->
                 (view as? TextView)?.text?.toString()?.trim() == label
             } ?: return@forEach
-            val row = rowContainer(labeled) ?: return@forEach
+            val row = generateSequence(labeled.parent as? ViewGroup) { it.parent as? ViewGroup }
+                .take(4).firstOrNull { parent ->
+                    findView(parent) { it is ImageView } != null &&
+                        findViews(parent) { it is TextView && it.text.toString().trim() in MENU_ICON_MAP }.size == 1
+                } ?: return@forEach
             val image = findView(row) { it is ImageView } as? ImageView ?: return@forEach
             replaceIcon(image, icon)
         }
@@ -302,6 +370,12 @@ object SettingMeMenuSession {
     }
 
     private fun styleBottomBar(bar: ViewGroup, cfg: SettingMeUiConfig) {
+        bar.findViewWithTag<ViewGroup>(ENTRY_TAG)?.let { entry ->
+            (entry.getChildAt(1) as? TextView)?.setTextColor(
+                if (HookEnv.isNightMode()) 0xFFF1F1F1.toInt() else 0xFF333333.toInt())
+            (entry.getChildAt(0) as? ImageView)?.setColorFilter(
+                if (HookEnv.isNightMode()) 0xFFDDDDDD.toInt() else 0xFF444444.toInt())
+        }
         if (cfg.bottomBarStyle != SettingMeUiConfig.BOTTOM_MIUIX) return
         replaceBottomIcon(bar, "设置", MiuixIcons.Settings)
         replaceBottomIconById(bar, BOTTOM_WEATHER_ICON_RESOURCE, MiuixIcons.CloudFill)
@@ -335,8 +409,11 @@ object SettingMeMenuSession {
             iconDrawables[icon] = drawable
             drawable
         }
+        desired.setTint(if (HookEnv.isNightMode()) 0xFFDDDDDD.toInt() else 0xFF444444.toInt())
         if (image.drawable !== desired) image.setImageDrawable(desired)
-        image.imageTintList = ColorStateList.valueOf(0xFF444444.toInt())
+        image.clearColorFilter()
+        image.imageTintList = ColorStateList.valueOf(
+            if (HookEnv.isNightMode()) 0xFFDDDDDD.toInt() else 0xFF444444.toInt())
     }
 
     private fun rowContainer(labelView: View): ViewGroup? {

@@ -420,6 +420,7 @@ internal object GlassBarInstaller {
             runCatching {
                 if (restoreBarContentHeight(host)) return@addOnPreDrawListener true
                 followBarOffset(host)
+                syncHostBottomInsetIfNeeded(host)
                 if (scheduleStructureRefreshIfNeeded(host)) return@addOnPreDrawListener true
                 val tabRow = tabRowRef.get()
                 val selected = QQTabLocator.selectedIndex(tabRow)
@@ -1167,11 +1168,21 @@ internal object GlassBarInstaller {
         )?.bottom ?: 0
     }.getOrDefault(0)
 
-    /** 缓存最近一次非零的导航栏内边距，读取返回缓存后的有效值。 */
+    /**
+     * 缓存最近一次有效的导航栏内边距。
+     *
+     * 视图脱离窗口时 inset 会暂时读为零（不可信），此时沿用缓存；
+     * 视图仍在窗口中而 inset 为零则说明窗口确实无导航栏（如分屏），接受并更新缓存。
+     */
     private fun rememberNavigationInset(anchor: View): Int {
         val inset = currentNavInset(anchor)
-        if (inset > 0) navigationInset = inset
-        return if (inset > 0) inset else navigationInset
+        if (inset > 0) {
+            navigationInset = inset
+        } else if (anchor.isAttachedToWindow && anchor.rootWindowInsets != null) {
+            // 视图在窗口中且能获取到 insets，零值是真实的。
+            navigationInset = 0
+        }
+        return navigationInset
     }
 
     /** 导航栏内边距变化后刷新药丸的底部锚点。 */
@@ -1183,6 +1194,16 @@ internal object GlassBarInstaller {
         lp.bottomMargin = desired
         host.layoutParams = lp
         Log.i("药丸底部锚点已刷新: inset=$inset margin=$desired")
+    }
+
+    /**
+     * 逐帧调用：窗口尺寸变化（分屏、折叠屏、旋转等）后导航栏内边距可能改变，
+     * 重新读取并据此刷新药丸的底部锚点。
+     */
+    private fun syncHostBottomInsetIfNeeded(host: GlassBarHostLayout) {
+        val parent = host.parent as? View ?: return
+        val inset = rememberNavigationInset(parent)
+        syncHostBottomInset(host, inset)
     }
 
     private fun floatingOffset(

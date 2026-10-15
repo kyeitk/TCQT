@@ -98,15 +98,14 @@ internal data class RegisteredAction(
 
         fun load(): List<RegisteredAction> {
             val text = SourceScanner.read(SourceScanner.generatedActionList)
-            val allFiles = SourceScanner.mainKotlinFiles()
             return Regex("com\\.owo233\\.tcqt\\.[\\w.]+(?=::class\\.java)")
                 .findAll(text)
                 .map { it.value }
                 .distinct()
                 .map { fqn ->
                     val simple = fqn.substringAfterLast('.')
-                    val file = allFiles.firstOrNull { it.name == "$simple.kt" }
-                        ?: error("注册类 $fqn 找不到源文件 $simple.kt")
+                    val file = SourceScanner.declarationFile(fqn)
+                        ?: error("注册类 $fqn 找不到源声明")
                     RegisteredAction(
                         fqn = fqn,
                         simpleName = simple,

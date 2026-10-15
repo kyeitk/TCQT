@@ -710,10 +710,20 @@ internal object NewViewBarInstaller {
         anchor.rootWindowInsets?.getInsetsIgnoringVisibility(android.view.WindowInsets.Type.navigationBars())?.bottom ?: 0
     }.getOrDefault(0)
 
+    /**
+     * 有效的导航栏内边距。
+     *
+     * 视图脱离窗口时 inset 会暂时读为零（不可信），此时沿用缓存；
+     * 视图仍在窗口中而 inset 为零则说明窗口确实无导航栏（如分屏），接受并更新缓存。
+     */
     private fun effectiveNavigationInset(anchor: View): Int {
         val live = currentNavigationInset(anchor)
-        if (live > 0) navigationInset = live
-        return max(live, navigationInset)
+        if (live > 0) {
+            navigationInset = live
+        } else if (anchor.isAttachedToWindow && anchor.rootWindowInsets != null) {
+            navigationInset = 0
+        }
+        return navigationInset
     }
 
     private fun floatingOffset(position: FloatingBottomBarPosition, inset: Int, density: Float): Int =

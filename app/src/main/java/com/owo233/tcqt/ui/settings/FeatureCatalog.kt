@@ -39,7 +39,7 @@ internal object FeatureCatalog {
         return action.getSettingDesc(key) ?: defaultDesc
     }
 
-    fun getAllFeatures(): List<SettingFeature> {
+    fun getAllFeatures(readIntSetting: (String) -> Int = TCQTSetting::getInt): List<SettingFeature> {
         val features = mutableListOf<SettingFeature>()
         ActionRegistry.allActionClasses().forEach { actionClass ->
             val action = ActionRegistry.instanceOf(actionClass) ?: return@forEach
@@ -57,12 +57,14 @@ internal object FeatureCatalog {
                 }
 
             val isFull = action.key == "simplify_qq_setting_me" &&
-                TCQTSetting.getInt("simplify_qq_setting_me.mode") == 2
+                readIntSetting("simplify_qq_setting_me.mode") == 2
             val hiddenFullKeys = setOf(
                 "simplify_qq_setting_me.panel_clip",
                 "simplify_qq_setting_me.top_shortcuts",
                 "simplify_qq_setting_me.menu_icon_style",
                 "simplify_qq_setting_me.bottom_bar_style",
+                "simplify_qq_setting_me.card_style",
+                "simplify_qq_setting_me.card_background",
             )
 
             val optionGroups = action.settings
@@ -87,7 +89,7 @@ internal object FeatureCatalog {
                 }
 
             val panelClipEnabled = action.key == "simplify_qq_setting_me" && isFull &&
-                (TCQTSetting.getInt("simplify_qq_setting_me.panel_clip") and 1) != 0
+                (readIntSetting("simplify_qq_setting_me.panel_clip") and 1) != 0
             val sliders = action.settings
                 .filterIsInstance<IntSliderSetting>()
                 .filterNot { it.isHide }

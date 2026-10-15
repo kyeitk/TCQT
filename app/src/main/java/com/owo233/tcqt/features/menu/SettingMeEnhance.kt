@@ -3,6 +3,7 @@ package com.owo233.tcqt.features.menu
 import com.owo233.tcqt.annotations.RegisterAction
 import com.owo233.tcqt.api.Feature
 import com.owo233.tcqt.api.Requires
+import com.owo233.tcqt.core.action.ActionProcess
 import com.owo233.tcqt.core.env.isFlagEnabled
 import com.owo233.tcqt.core.env.toClass
 import com.owo233.tcqt.core.hook.hookAfter
@@ -10,6 +11,7 @@ import com.owo233.tcqt.core.log.Log
 import com.owo233.tcqt.core.reflect.field
 import com.owo233.tcqt.core.reflect.findField
 import com.owo233.tcqt.core.reflect.findMethod
+import com.owo233.tcqt.features.menu.settingmecards.WalletBalanceSource
 
 /**
  * 侧滑栏增强：保留历史「侧滑栏精简」的 key 与精简行为，并提供「旧精简 / 全功能」模式。
@@ -24,6 +26,7 @@ object SimplifyQQSettingMe : Feature(
     name = "侧滑栏增强",
     desc = "侧滑栏精简/增强：旧精简模式保留原隐藏行为，全功能模式提供 MIUIX 风格整页改造。",
     requires = Requires(host = Requires.Host.QQOnly, ntOnly = true),
+    processes = setOf(ActionProcess.MAIN, ActionProcess.TOOL),
 ) {
 
     private const val TAG = "SettingMeEnhance"
@@ -106,8 +109,39 @@ object SimplifyQQSettingMe : Feature(
         options = listOf("原生", "MIUIX"),
     )
 
+    private val cardStyle by intOption(
+        settingKey = "card_style",
+        name = "内容布局",
+        defaultValue = 2,
+        options = listOf("原生", "Miuix 卡片"),
+        desc = "基于原生栏目适配实际宽度，加入可编辑的天气和钱包卡片，保留原生资料内容。",
+    )
+
+    private val cardBackground by multiIntOption(
+        settingKey = "card_background",
+        name = "卡片面板背景",
+        defaultValue = 1,
+        options = listOf("保留原生背景图"),
+    )
+
+    private var cardLayout by stringOption(
+        settingKey = "card_layout",
+        name = "卡片布局",
+        isHide = true,
+    )
+
+    private var weatherCity by stringOption(
+        settingKey = "weather_city",
+        name = "天气城市",
+        defaultValue = "北京,39.9042,116.4074",
+        desc = "格式：城市名,纬度,经度。手动指定城市，不自动获取定位。",
+        placeholder = "北京,39.9042,116.4074",
+    )
+
     override fun install() {
         val addModuleSettings = mode == MODE_FULL
+        if (addModuleSettings && cardStyle == 2) WalletBalanceSource.install()
+        if (currentProcess != ActionProcess.MAIN) return
         val selectedItemIds = options.let { flags ->
             map.keys.filterIndexedTo(mutableSetOf()) { index, _ ->
                 flags.isFlagEnabled(index)
@@ -128,6 +162,12 @@ object SimplifyQQSettingMe : Feature(
 
                     menuIconStyle = menuIconStyle,
                     bottomBarStyle = bottomBarStyle,
+                    cardReflow = cardStyle == 2,
+                    showBackground = cardBackground.isFlagEnabled(0),
+                    cardLayout = cardLayout,
+                    weatherCity = weatherCity,
+                    saveCardLayout = { cardLayout = it },
+                    readCardLayout = { cardLayout },
                 )
             )
         }

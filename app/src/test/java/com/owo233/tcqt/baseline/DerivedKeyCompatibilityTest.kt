@@ -95,6 +95,9 @@ class DerivedKeyCompatibilityTest {
         )),
         "SettingMeEnhance.kt" to ("simplify_qq_setting_me" to listOf(
             "simplify_qq_setting_me.bottom_bar_style",
+            "simplify_qq_setting_me.card_background",
+            "simplify_qq_setting_me.card_layout",
+            "simplify_qq_setting_me.card_style",
             "simplify_qq_setting_me.corner_radius",
             "simplify_qq_setting_me.menu_icon_style",
             "simplify_qq_setting_me.mode",
@@ -102,6 +105,7 @@ class DerivedKeyCompatibilityTest {
             "simplify_qq_setting_me.panel_width",
             "simplify_qq_setting_me.top_shortcuts",
             "simplify_qq_setting_me.type",
+            "simplify_qq_setting_me.weather_city",
         )),
         "MessagingStyleNotification.kt" to ("messaging_style_notification" to listOf(
             "messaging_style_notification.options",
